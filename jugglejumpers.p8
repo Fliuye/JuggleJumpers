@@ -1,68 +1,217 @@
 pico-8 cartridge // http://www.pico-8.com
 version 14
 __lua__
+local ticker = 0
+
 function _init()
   player =
     { x = 20
     , y = 30
+    , previousY = 0
     , vx = 0
     , vy = 0
-    , spriteNumber = 2
+    , flipx = false
+    , canjump = false
+    , spritenumber = 2
     }
 
+  jumpbutton =
+    { ispressed = false
+    , waspressedlastframe = false
+    }
+
+  shells = {}
+  local shell = createShell()
+  add(shells, shell)
+
   ground =
-    { startX = 1
-    , startY = 16
-    , numTiles = 16
+    { startx = 0
+    , starty = 16
+    , numtiles = 16
     }
 end
 
 function _update60()
-  local accY = 0.02
+  if ( player.previousY - player.y > 0 ) then
+    ticker += 1
+  end
+  local accy = 125 / 18 / 60 -- acceleration / speed
 
-  player.x = player.vx
+  updateplayer(accy)
+  updatebuttons()
+  updateShells(accy)
+  iscolliding(player, shells)
+
+end
+
+function createShell()
+  local shell =
+    { x = 50
+    , y = 50
+    , vy = 0
+    , vx = 0
+    , isMoving = false
+    , movingLeft = false
+    , constantVX = 2
+    , spritenumber = 3
+    }
+    return shell
+end
+
+function updateShells(accy)
+  for i = 1, #shells, 1 do
+    shells[i].vy += accy
+    shells[i].y += shells[i].vy
+    if shells[i].isMoving then
+      if shells[i].movingLeft then
+        shells[i].vx = shells[i].constantVX * -1
+      else
+        shells[i].vx = shells[i].constantVX
+      end
+      shells[i].x += shells[i].vx
+    end
+
+    groundgridy = 14
+
+    -- if below ground place player ontop of ground
+    local gridx, gridy = coordtogrid(shells[i].x, shells[i].y)
+    if gridy > groundgridy then
+      ___, shells[i].y = gridtocoord(gridx, groundgridy)
+      shells[i].vy = 0
+    end
+
+    -- if left of screen place player on edge of screen
+    if gridx < 0 then
+      shells[i].x = 0
+      shells[i].movingLeft = false
+    end
+
+    rightmostgrid = 15
+
+    if gridx > rightmostgrid then
+      shells[i].x, ___ = gridtocoord(rightmostgrid, gridy)
+      shells[i].movingLeft = true
+    end
+
+  end
+end
+
+function updatebuttons()
+  jumpbutton.waspressedlastframe = jumpbutton.ispressed
+  jumpbutton.ispressed = false
+  if (btn(5)) then
+    jumpbutton.ispressed = true
+  end
+end
+
+function updateplayer(accy)
+  if jumpbutton.ispressed and (not jumpbutton.waspressedlastframe) and player.canjump then
+    player.vy = -130 / 60
+    player.canjump = false
+    ticker = 0
+  end
+  player.previousY = player.y
+  player.vy += accy
   player.y += player.vy
-  -- player.vx += accX
-  player.vy += accY
+  player.x += player.vx
 
-  -- local NewPlayer =
-  --   { x = player.x + player.vx
-  --   , y = player.y + player.vy
-  --   , vx = player.vx
-  --   , vy = player.vy + accY
-  --   , spriteNumber = 2
-  --   }
-    -- player = newPlayer
+  if (btn(0)) then -- left
+    player.x -= 1
+    player.flipx = true
+  end
+  if (btn(1)) then -- right
+    player.x += 1
+    player.flipx = false
+  end
+
+
+
+  -- btn([0, [player]])
+
+  -- top of ground
+  groundgridy = 14
+
+  -- if below ground place player ontop of ground
+  local gridx, gridy = coordtogrid(player.x, player.y)
+  if gridy > groundgridy then
+    ___, player.y = gridtocoord(gridx, groundgridy)
+    player.vy = 0
+    player.canjump = true
+  end
+
+  -- if left of screen place player on edge of screen
+  if gridx < 0 then
+    player.x = 0
+  end
+
+  rightmostgrid = 15
+
+  if gridx > rightmostgrid then
+    player.x, ___ = gridtocoord(rightmostgrid, gridy)
+  end
 end
 
 function _draw()
   cls()
-  drawGround(ground)
+  print("player.y: ".. player.y)
+  print("player.vy: ".. player.vy)
+  print(ticker)
+  drawground()
+  drawShells()
 
   -- draws person
-  spr(player.spriteNumber, player.x, player.y)
+  spr(player.spritenumber, player.x, player.y, 1, 1, player.flipx )
 
 end
 
-function gridToCoord(x, y)
-  return (x * 8) - 8, (y * 8) - 8
+function iscolliding( player, shells )
+  local width = 7
+  local height = 7
+  for shell in all(shells) do
+    local x = (player.x + player.vx) - shell.x
+    local y = (player.y + player.vy) - shell.y
+    if ((abs(x) < ( width )) and (abs(y) < ( height ))) then
+      if ( player.x < shell.x ) then
+        shell.isMoving = true
+        shell.movingLeft = false
+      else
+        shell.isMoving = true
+        shell.movingLeft = true
+      end
+    end
+  end
 end
 
-function drawGround(ground)
-  for tile = ground.startX, ground.numTiles, 1 do
-    local x, y = gridToCoord(tile, ground.startY)
+function gridtocoord(x, y)
+  return (x * 8), (y * 8)
+end
+
+function coordtogrid(x, y)
+  return (x / 8), (y / 8)
+end
+
+function drawground()
+  for tile = ground.startx, ground.numtiles, 1 do
+    local x, y = gridtocoord(tile, ground.starty - 1)
     spr(1, x, y)
   end
 end
+
+function drawShells()
+  for i = 1, #shells, 1 do
+    spr(shells[i].spritenumber, shells[i].x, shells[i].y)
+  end
+end
+
 __gfx__
 00000000bbbbbbbb2222222000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000bbbbbbbb22ffff2200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000bbbbbbbb0f7f7ff200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000bbbb4bbb0ffffff200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000004b4b4b4b00fffff200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000004444444400eeeee000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000044444444000eeee000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000444444440004e4e000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000bbbb4bbb0ffffff2003bb300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000000004b4b4b4b00fffff20b3bb3b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000000004444444400eeeee0b777777b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000044444444000eeee07ffffff7000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000444444440004e4e000ffff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -240,7 +389,7 @@ __sfx__
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
